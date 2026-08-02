@@ -1,0 +1,111 @@
+=====================================
+CARA PAKAI BLOX FRUITS SCRIPT
+=====================================
+
+┌─────────────────────────────────────┐
+│  CARA 1: COPY-PASTE LANGSUNG        │
+└─────────────────────────────────────┘
+
+1. Buka file "BloxFruits.lua"
+2. Copy semua isi file (Ctrl+A lalu Ctrl+C)
+3. Paste ke executor Anda
+4. Klik Execute
+5. Tekan RightShift untuk buka UI
+
+
+┌─────────────────────────────────────┐
+│  CARA 2: LOADSTRING GITHUB          │
+└─────────────────────────────────────┘
+
+Langkah 1: Upload ke GitHub
+---------------------------
+1. Buat akun GitHub (github.com)
+2. Klik "New Repository"
+3. Nama: "roblox-scripts" (atau terserah)
+4. Upload file "BloxFruits.lua"
+5. Klik file tersebut, lalu klik "Raw"
+6. Copy URL-nya
+
+Langkah 2: Pakai Loadstring Ini
+--------------------------------
+loadstring(game:HttpGet("URL_YANG_DICOPY"))()
+
+CONTOH:
+loadstring(game:HttpGet("https://raw.githubusercontent.com/tezydner/bloxfruits/main/BloxFruits.lua"))()
+
+
+┌─────────────────────────────────────┐
+│  CARA 3: LOADSTRING PASTEBIN        │
+└─────────────────────────────────────┘
+
+Langkah 1: Upload ke Pastebin
+------------------------------
+1. Buka pastebin.com
+2. Paste isi "BloxFruits.lua"
+3. Klik "Create New Paste"
+4. Klik "Raw", copy URL
+
+Langkah 2: Pakai Loadstring Ini
+--------------------------------
+loadstring(game:HttpGet("https://pastebin.com/raw/PASTEID"))()
+
+CONTOH:
+loadstring(game:HttpGet("https://pastebin.com/raw/xyz123AB"))()
+
+
+┌─────────────────────────────────────┐
+│  LOADSTRING TEMPLATE (Copy ini)     │
+└─────────────────────────────────────┘
+
+-- Blox Fruits Script by Tezydner
+-- Ganti URL dibawah dengan URL script Anda!
+
+loadstring(game:HttpGet("GANTI_DENGAN_URL_ANDA"))()
+
+
+┌─────────────────────────────────────┐
+│  KEYBINDS SETELAH EXECUTE           │
+└─────────────────────────────────────┘
+
+RightShift  = Toggle UI (buka/tutup menu)
+F           = Toggle Auto Farm
+
+
+┌─────────────────────────────────────┐
+│  QUICK START GUIDE                  │
+└─────────────────────────────────────┘
+
+Setelah execute:
+1. Tekan RightShift (UI muncul)
+2. Buka tab "Auto Farm"
+3. Enable "Auto Farm Level"
+4. Enable "Auto Click"
+5. Enable "Fast Attack"
+6. Done! Script akan otomatis farm
+
+
+┌─────────────────────────────────────┐
+│  TROUBLESHOOTING                    │
+└─────────────────────────────────────┘
+
+❌ Script error?
+   → Pastikan executor support loadstring
+   → Coba executor lain (Solara, Wave, Fluxus)
+
+❌ UI tidak muncul?
+   → Tekan RightShift
+   → Execute ulang
+
+❌ Auto farm tidak jalan?
+   → Equip weapon dulu (sword/melee)
+   → Enable "Auto Click"
+
+❌ Loadstring error?
+   → Cek URL sudah benar
+   → Pastikan koneksi internet stabil
+   → Coba pakai pastebin sebagai alternatif
+
+
+=====================================
+SELAMAT BERMAIN! 🍇
+=====================================
