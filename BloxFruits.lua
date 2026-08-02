@@ -236,8 +236,11 @@ end
 local function bringAllMobs()
     if not config.autoFarm or not humanoidRootPart then return end
     
-    -- Posisi bring: DI BAWAH kaki player
-    local bringPosition = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
+    -- Player position (tetap di atas)
+    local playerPos = humanoidRootPart.Position
+    
+    -- Posisi bring: DI BAWAH player (player terbang di atas)
+    local bringPosition = CFrame.new(playerPos.X, playerPos.Y - config.farmDistance, playerPos.Z)
     local enemies = Workspace:FindFirstChild("Enemies")
     if not enemies then return end
     
@@ -247,7 +250,7 @@ local function bringAllMobs()
             local mobRoot = mob.HumanoidRootPart
             
             if mobHumanoid.Health > 0 then
-                local distance = (humanoidRootPart.Position - mobRoot.Position).Magnitude
+                local distance = (playerPos - mobRoot.Position).Magnitude
                 
                 if distance <= config.bringRadius then
                     -- Disable mob collision
@@ -258,7 +261,7 @@ local function bringAllMobs()
                         end
                     end
                     
-                    -- Bring mob ke BAWAH player
+                    -- Bring mob ke BAWAH player yang terbang
                     mobRoot.CFrame = bringPosition
                     mobRoot.Velocity = Vector3.new(0, 0, 0)
                     mobRoot.RotVelocity = Vector3.new(0, 0, 0)
@@ -385,9 +388,37 @@ RunService.RenderStepped:Connect(function()
             humanoid.JumpPower = config.jumpPower
         end
         
-        -- Auto Farm + Bring Mob (1 paket)
+        -- Auto Farm + Bring Mob + Auto Fly
         if config.autoFarm and humanoidRootPart then
-            -- Bring all mobs to player
+            -- Auto Fly: Player terbang di atas
+            local targetHeight = config.farmDistance + 5 -- Tinggi terbang
+            local currentPos = humanoidRootPart.Position
+            local targetPos = Vector3.new(currentPos.X, currentPos.Y, currentPos.Z)
+            
+            -- Cari ground height
+            local ray = Ray.new(currentPos, Vector3.new(0, -100, 0))
+            local hit, position = Workspace:FindPartOnRay(ray, character)
+            
+            if hit then
+                -- Terbang di atas ground
+                targetPos = Vector3.new(currentPos.X, position.Y + targetHeight, currentPos.Z)
+            else
+                -- Jika tidak ada ground, tetap di ketinggian minimal
+                targetPos = Vector3.new(currentPos.X, currentPos.Y, currentPos.Z)
+            end
+            
+            -- Smooth fly ke target height
+            humanoidRootPart.CFrame = CFrame.new(targetPos)
+            humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+            
+            -- No clip saat farm (agar bisa terbang)
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+            
+            -- Bring all mobs ke bawah player
             bringAllMobs()
         end
     end)
@@ -454,20 +485,20 @@ FarmTab:CreateToggle({
             config.fastAttack = true
             Rayfield:Notify({
                 Title = "Auto Farm",
-                Content = "✅ Enabled | Outline hijau = aktif",
+                Content = "✅ Enabled | Anda akan terbang otomatis",
                 Duration = 3,
             })
         else
             Rayfield:Notify({
                 Title = "Auto Farm",
-                Content = "❌ Disabled | Outline hilang",
+                Content = "❌ Disabled",
                 Duration = 2,
             })
         end
     end,
 })
 
-FarmTab:CreateLabel("Info: Musuh dihisap ke bawah kaki Anda")
+FarmTab:CreateLabel("Anda terbang di atas, musuh di bawah")
 
 FarmTab:CreateSlider({
     Name = "Bring Radius (Jarak Hisap)",
@@ -483,15 +514,17 @@ FarmTab:CreateSlider({
 
 FarmTab:CreateSlider({
     Name = "Farm Height (Ketinggian Terbang)",
-    Range = {5, 30},
+    Range = {10, 40},
     Increment = 1,
     Suffix = "studs",
-    CurrentValue = 15,
+    CurrentValue = 20,
     Flag = "FarmDistanceSlider",
     Callback = function(value)
         config.farmDistance = value
     end,
 })
+
+FarmTab:CreateLabel("Semakin tinggi = semakin aman dari musuh")
 
 FarmTab:CreateSection("Quest Settings")
 
