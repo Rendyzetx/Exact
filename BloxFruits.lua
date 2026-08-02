@@ -24,7 +24,6 @@ local config = {
     farmMethod = "Level",
     farmDistance = 15,
     autoFarmMastery = false,
-    bringMob = false,
     bringRadius = 300,
     
     -- Combat
@@ -186,9 +185,9 @@ local function getAllMobs()
 end
 
 local function bringAllMobs()
-    if not config.bringMob or not humanoidRootPart then return end
+    if not config.autoFarm or not humanoidRootPart then return end
     
-    local bringPosition = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
+    local bringPosition = humanoidRootPart.CFrame * CFrame.new(0, config.farmDistance, 0)
     local enemies = Workspace:FindFirstChild("Enemies")
     if not enemies then return end
     
@@ -205,24 +204,24 @@ local function bringAllMobs()
                     for _, part in pairs(mob:GetDescendants()) do
                         if part:IsA("BasePart") then
                             part.CanCollide = false
-                            part.Transparency = 0.8
                         end
                     end
                     
-                    -- Bring mob to player
+                    -- Bring mob to player (di depan player)
                     mobRoot.CFrame = bringPosition
                     mobRoot.Velocity = Vector3.new(0, 0, 0)
-                    mobRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    mobRoot.RotVelocity = Vector3.new(0, 0, 0)
                     
-                    -- Freeze mob
-                    if mobRoot:FindFirstChild("BodyVelocity") then
-                        mobRoot.BodyVelocity:Destroy()
+                    -- Disable mob movement
+                    if mobHumanoid then
+                        mobHumanoid.WalkSpeed = 0
+                        mobHumanoid.JumpPower = 0
                     end
                     
-                    local bv = Instance.new("BodyVelocity")
-                    bv.Velocity = Vector3.new(0, 0, 0)
-                    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-                    bv.Parent = mobRoot
+                    -- Anchor mob (freeze in place)
+                    pcall(function()
+                        mobRoot.Anchored = true
+                    end)
                 end
             end
         end
@@ -232,18 +231,33 @@ end
 local function attackMob(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return end
     
-    -- Stay in place if bring mob is enabled
-    if not config.bringMob then
-        local mobPosition = mob.HumanoidRootPart.Position
-        humanoidRootPart.CFrame = CFrame.new(mobPosition + Vector3.new(0, config.farmDistance, 0))
-        humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, mobPosition)
+    -- Stay in place if bring mob is enabled (sudah otomatis dengan auto farm)
+    
+    -- Click untuk attack
+    if config.autoClick then
+        -- Method 1: Tool activation
+        local tool = character:FindFirstChildOfClass("Tool")
+        if tool and tool:FindFirstChild("Handle") then
+            tool:Activate()
+        end
+        
+        -- Method 2: Mouse click simulation
+        local VirtualInputManager = game:GetService("VirtualInputManager")
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        wait(0.01)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
     end
     
-    -- Attack
-    local tool = character:FindFirstChildOfClass("Tool")
-    if tool and tool:FindFirstChild("Handle") then
-        tool:Activate()
-    end
+    -- Method 3: Combat remote (jika ada)
+    pcall(function()
+        local combat = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:FindFirstChild("Remote")
+        if combat then
+            local combatEvent = combat:FindFirstChild("CommF_") or combat:FindFirstChild("Combat")
+            if combatEvent then
+                combatEvent:InvokeServer("Attack")
+            end
+        end
+    end)
 end
 
 -- Auto Quest Functions
@@ -295,6 +309,7 @@ local islands = {
 }
 
 -- Main Loops
+local attackTick = 0
 RunService.RenderStepped:Connect(function()
     pcall(function()
         -- Update Character References
@@ -321,24 +336,25 @@ RunService.RenderStepped:Connect(function()
             humanoid.JumpPower = config.jumpPower
         end
         
-        -- Bring Mob (hisap musuh)
-        if config.bringMob and humanoidRootPart then
-            bringAllMobs()
-        end
-        
-        -- Auto Farm
+        -- Auto Farm + Bring Mob (1 paket)
         if config.autoFarm and humanoidRootPart then
+            -- Bring all mobs to player
+            bringAllMobs()
+            
+            -- Attack closest mob
             local mob = getClosestMob()
             if mob then
-                attackMob(mob)
-            end
-        end
-        
-        -- Fast Attack
-        if config.fastAttack and config.autoFarm then
-            local tool = character and character:FindFirstChildOfClass("Tool")
-            if tool then
-                tool:Activate()
+                -- Attack every frame when fast attack enabled
+                if config.fastAttack then
+                    attackMob(mob)
+                else
+                    -- Attack every 0.1 second
+                    attackTick = attackTick + 1
+                    if attackTick >= 6 then
+                        attackMob(mob)
+                        attackTick = 0
+                    end
+                end
             end
         end
     end)
@@ -379,7 +395,7 @@ local FarmTab = Window:CreateTab("🌾 Auto Farm", 4483362458)
 FarmTab:CreateSection("Main Farm Settings")
 
 FarmTab:CreateToggle({
-    Name = "Auto Farm Level",
+    Name = "Auto Farm Level (+ Bring Mob)",
     CurrentValue = false,
     Flag = "AutoFarmToggle",
     Callback = function(value)
@@ -387,21 +403,25 @@ FarmTab:CreateToggle({
         if value then
             config.autoClick = true
             config.fastAttack = true
+            Rayfield:Notify({
+                Title = "Auto Farm",
+                Content = "✅ Enabled (Bring Mob aktif otomatis)",
+                Duration = 3,
+            })
+        else
+            Rayfield:Notify({
+                Title = "Auto Farm",
+                Content = "❌ Disabled",
+                Duration = 2,
+            })
         end
     end,
 })
 
-FarmTab:CreateToggle({
-    Name = "Bring Mob (Hisap Musuh)",
-    CurrentValue = false,
-    Flag = "BringMobToggle",
-    Callback = function(value)
-        config.bringMob = value
-    end,
-})
+FarmTab:CreateLabel("Info: Musuh akan dihisap otomatis ke depan Anda")
 
 FarmTab:CreateSlider({
-    Name = "Bring Radius",
+    Name = "Bring Radius (Jarak Hisap)",
     Range = {100, 500},
     Increment = 10,
     Suffix = "studs",
@@ -411,6 +431,20 @@ FarmTab:CreateSlider({
         config.bringRadius = value
     end,
 })
+
+FarmTab:CreateSlider({
+    Name = "Farm Height (Ketinggian Terbang)",
+    Range = {5, 30},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = 15,
+    Flag = "FarmDistanceSlider",
+    Callback = function(value)
+        config.farmDistance = value
+    end,
+})
+
+FarmTab:CreateSection("Quest Settings")
 
 FarmTab:CreateToggle({
     Name = "Auto Quest",
@@ -432,32 +466,11 @@ FarmTab:CreateToggle({
 FarmTab:CreateSection("Attack Settings")
 
 FarmTab:CreateToggle({
-    Name = "Auto Attack",
-    CurrentValue = false,
-    Flag = "AutoClickToggle",
-    Callback = function(value)
-        config.autoClick = value
-    end,
-})
-
-FarmTab:CreateToggle({
     Name = "Fast Attack",
     CurrentValue = false,
     Flag = "FastAttackToggle",
     Callback = function(value)
         config.fastAttack = value
-    end,
-})
-
-FarmTab:CreateSlider({
-    Name = "Farm Distance (No Bring)",
-    Range = {5, 30},
-    Increment = 1,
-    Suffix = "studs",
-    CurrentValue = 15,
-    Flag = "FarmDistanceSlider",
-    Callback = function(value)
-        config.farmDistance = value
     end,
 })
 
