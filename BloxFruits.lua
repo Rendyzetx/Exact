@@ -231,28 +231,17 @@ end
 local function attackMob(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return end
     
-    -- Stay in place if bring mob is enabled (sudah otomatis dengan auto farm)
-    
-    -- Click untuk attack
-    if config.autoClick then
-        -- Method 1: Tool activation
-        local tool = character:FindFirstChildOfClass("Tool")
-        if tool and tool:FindFirstChild("Handle") then
-            tool:Activate()
-        end
-        
-        -- Method 2: Mouse click simulation
-        local VirtualInputManager = game:GetService("VirtualInputManager")
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-        wait(0.01)
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    -- Attack dengan tool activation
+    local tool = character:FindFirstChildOfClass("Tool")
+    if tool and tool:FindFirstChild("Handle") then
+        tool:Activate()
     end
     
-    -- Method 3: Combat remote (jika ada)
+    -- Method combat remote untuk Blox Fruits (lebih aman)
     pcall(function()
-        local combat = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:FindFirstChild("Remote")
+        local combat = ReplicatedStorage:FindFirstChild("Remotes")
         if combat then
-            local combatEvent = combat:FindFirstChild("CommF_") or combat:FindFirstChild("Combat")
+            local combatEvent = combat:FindFirstChild("CommF_")
             if combatEvent then
                 combatEvent:InvokeServer("Attack")
             end
@@ -310,6 +299,8 @@ local islands = {
 
 -- Main Loops
 local attackTick = 0
+fastAttackSpeed = 0.1 -- Global variable untuk attack speed
+
 RunService.RenderStepped:Connect(function()
     pcall(function()
         -- Update Character References
@@ -340,24 +331,24 @@ RunService.RenderStepped:Connect(function()
         if config.autoFarm and humanoidRootPart then
             -- Bring all mobs to player
             bringAllMobs()
-            
-            -- Attack closest mob
-            local mob = getClosestMob()
-            if mob then
-                -- Attack every frame when fast attack enabled
-                if config.fastAttack then
-                    attackMob(mob)
-                else
-                    -- Attack every 0.1 second
-                    attackTick = attackTick + 1
-                    if attackTick >= 6 then
-                        attackMob(mob)
-                        attackTick = 0
-                    end
-                end
-            end
         end
     end)
+end)
+
+-- Separate attack loop untuk avoid freeze
+task.spawn(function()
+    while true do
+        wait(config.fastAttack and fastAttackSpeed or 0.2)
+        
+        pcall(function()
+            if config.autoFarm and humanoidRootPart then
+                local mob = getClosestMob()
+                if mob then
+                    attackMob(mob)
+                end
+            end
+        end)
+    end
 end)
 
 -- ESP Update Loop
@@ -473,6 +464,20 @@ FarmTab:CreateToggle({
         config.fastAttack = value
     end,
 })
+
+FarmTab:CreateSlider({
+    Name = "Attack Speed",
+    Range = {0.05, 0.5},
+    Increment = 0.05,
+    Suffix = "s",
+    CurrentValue = 0.1,
+    Flag = "AttackSpeedSlider",
+    Callback = function(value)
+        fastAttackSpeed = value
+    end,
+})
+
+FarmTab:CreateLabel("Semakin kecil = semakin cepat attack")
 
 -- Tab: Combat
 local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
