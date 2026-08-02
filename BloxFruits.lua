@@ -684,35 +684,188 @@ MiscTab:CreateToggle({
     end,
 })
 
-MiscTab:CreateSection("Game Info")
-
-MiscTab:CreateLabel("Server: " .. game.JobId:sub(1, 8))
-MiscTab:CreateLabel("Players: " .. #Players:GetPlayers() .. "/" .. Players.MaxPlayers)
-MiscTab:CreateLabel("Ping: " .. math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()) .. "ms")
+MiscTab:CreateSection("Server Management")
 
 MiscTab:CreateButton({
-    Name = "Rejoin Server",
+    Name = "🔄 Rejoin Server (Same)",
     Callback = function()
+        Rayfield:Notify({
+            Title = "Rejoining...",
+            Content = "Rejoining server saat ini",
+            Duration = 2,
+        })
+        wait(1)
         game:GetService("TeleportService"):Teleport(game.PlaceId, localPlayer)
     end,
 })
 
 MiscTab:CreateButton({
-    Name = "Server Hop (Low Players)",
+    Name = "🔍 Server Hop (Player Paling Dikit)",
     Callback = function()
-        local HttpService = game:GetService("HttpService")
-        local TeleportService = game:GetService("TeleportService")
+        Rayfield:Notify({
+            Title = "Server Hop",
+            Content = "Mencari server dengan player paling sedikit...",
+            Duration = 3,
+        })
         
-        local servers = HttpService:JSONDecode(game:HttpGet(
-            "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-        ))
-        
-        for _, server in pairs(servers.data) do
-            if server.playing < server.maxPlayers - 5 and server.id ~= game.JobId then
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, localPlayer)
-                break
+        task.spawn(function()
+            local HttpService = game:GetService("HttpService")
+            local TeleportService = game:GetService("TeleportService")
+            
+            local success, result = pcall(function()
+                local servers = HttpService:JSONDecode(game:HttpGet(
+                    "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+                ))
+                
+                local lowestPlayerServer = nil
+                local lowestPlayerCount = math.huge
+                
+                for _, server in pairs(servers.data) do
+                    if server.id ~= game.JobId and server.playing < lowestPlayerCount and server.playing < server.maxPlayers then
+                        lowestPlayerCount = server.playing
+                        lowestPlayerServer = server
+                    end
+                end
+                
+                if lowestPlayerServer then
+                    Rayfield:Notify({
+                        Title = "Server Ditemukan!",
+                        Content = string.format("Pindah ke server dengan %d/%d players", lowestPlayerServer.playing, lowestPlayerServer.maxPlayers),
+                        Duration = 3,
+                    })
+                    wait(1)
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, lowestPlayerServer.id, localPlayer)
+                else
+                    Rayfield:Notify({
+                        Title = "Error",
+                        Content = "Tidak dapat menemukan server yang lebih sepi",
+                        Duration = 3,
+                    })
+                end
+            end)
+            
+            if not success then
+                Rayfield:Notify({
+                    Title = "Error",
+                    Content = "Gagal server hop: " .. tostring(result),
+                    Duration = 3,
+                })
             end
-        end
+        end)
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "🌍 Server Hop (Random)",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Server Hop",
+            Content = "Pindah ke server random...",
+            Duration = 2,
+        })
+        
+        task.spawn(function()
+            local HttpService = game:GetService("HttpService")
+            local TeleportService = game:GetService("TeleportService")
+            
+            local success, result = pcall(function()
+                local servers = HttpService:JSONDecode(game:HttpGet(
+                    "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+                ))
+                
+                local availableServers = {}
+                for _, server in pairs(servers.data) do
+                    if server.id ~= game.JobId and server.playing < server.maxPlayers then
+                        table.insert(availableServers, server)
+                    end
+                end
+                
+                if #availableServers > 0 then
+                    local randomServer = availableServers[math.random(1, #availableServers)]
+                    wait(1)
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer.id, localPlayer)
+                end
+            end)
+            
+            if not success then
+                Rayfield:Notify({
+                    Title = "Error",
+                    Content = "Gagal server hop",
+                    Duration = 3,
+                })
+            end
+        end)
+    end,
+})
+
+MiscTab:CreateSection("Game Info")
+
+MiscTab:CreateLabel("Server ID: " .. game.JobId:sub(1, 12))
+MiscTab:CreateLabel("Players: " .. #Players:GetPlayers() .. "/" .. Players.MaxPlayers)
+
+local pingLabel = MiscTab:CreateLabel("Ping: Calculating...")
+
+-- Update ping setiap 2 detik
+task.spawn(function()
+    while true do
+        wait(2)
+        pcall(function()
+            local ping = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
+            pingLabel:Set("Ping: " .. ping .. "ms")
+        end)
+    end
+end)
+
+MiscTab:CreateButton({
+    Name = "📋 Copy Server ID",
+    Callback = function()
+        setclipboard(game.JobId)
+        Rayfield:Notify({
+            Title = "Copied!",
+            Content = "Server ID copied to clipboard",
+            Duration = 2,
+        })
+    end,
+})
+
+MiscTab:CreateSection("Game Settings")
+
+MiscTab:CreateButton({
+    Name = "⚙️ Buka Pengaturan Roblox",
+    Callback = function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Pengaturan",
+            Text = "Tekan ESC untuk buka menu Roblox",
+            Duration = 3,
+        })
+        -- Alternatif: buka settings menu
+        game:GetService("GuiService"):ToggleGuiIsVisibleForCaptures(false)
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "🚪 Keluar ke Lobby",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Keluar",
+            Content = "Kembali ke menu utama...",
+            Duration = 2,
+        })
+        wait(1)
+        game:GetService("TeleportService"):Teleport(2753915549, localPlayer) -- Blox Fruits lobby
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "🔴 Disconnect (Quit Game)",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Disconnecting",
+            Content = "Keluar dari game...",
+            Duration = 2,
+        })
+        wait(1)
+        game:Shutdown()
     end,
 })
 
