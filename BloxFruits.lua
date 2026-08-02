@@ -24,6 +24,8 @@ local config = {
     farmMethod = "Level",
     farmDistance = 15,
     autoFarmMastery = false,
+    bringMob = false,
+    bringRadius = 300,
     
     -- Combat
     autoClick = false,
@@ -167,22 +169,80 @@ local function getClosestMob()
     return closestMob
 end
 
+local function getAllMobs()
+    local enemies = Workspace:FindFirstChild("Enemies")
+    if not enemies then return {} end
+    
+    local mobList = {}
+    for _, mob in pairs(enemies:GetChildren()) do
+        if mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChild("Humanoid") then
+            local mobHumanoid = mob.Humanoid
+            if mobHumanoid.Health > 0 then
+                table.insert(mobList, mob)
+            end
+        end
+    end
+    return mobList
+end
+
+local function bringAllMobs()
+    if not config.bringMob or not humanoidRootPart then return end
+    
+    local bringPosition = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
+    local enemies = Workspace:FindFirstChild("Enemies")
+    if not enemies then return end
+    
+    for _, mob in pairs(enemies:GetChildren()) do
+        if mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChild("Humanoid") then
+            local mobHumanoid = mob.Humanoid
+            local mobRoot = mob.HumanoidRootPart
+            
+            if mobHumanoid.Health > 0 then
+                local distance = (humanoidRootPart.Position - mobRoot.Position).Magnitude
+                
+                if distance <= config.bringRadius then
+                    -- Disable mob collision
+                    for _, part in pairs(mob:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                            part.Transparency = 0.8
+                        end
+                    end
+                    
+                    -- Bring mob to player
+                    mobRoot.CFrame = bringPosition
+                    mobRoot.Velocity = Vector3.new(0, 0, 0)
+                    mobRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    
+                    -- Freeze mob
+                    if mobRoot:FindFirstChild("BodyVelocity") then
+                        mobRoot.BodyVelocity:Destroy()
+                    end
+                    
+                    local bv = Instance.new("BodyVelocity")
+                    bv.Velocity = Vector3.new(0, 0, 0)
+                    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+                    bv.Parent = mobRoot
+                end
+            end
+        end
+    end
+end
+
 local function attackMob(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return end
     
-    -- Teleport to mob
-    local mobPosition = mob.HumanoidRootPart.Position
-    humanoidRootPart.CFrame = CFrame.new(mobPosition + Vector3.new(0, config.farmDistance, 0))
-    
-    -- Face the mob
-    humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, mobPosition)
+    -- Stay in place if bring mob is enabled
+    if not config.bringMob then
+        local mobPosition = mob.HumanoidRootPart.Position
+        humanoidRootPart.CFrame = CFrame.new(mobPosition + Vector3.new(0, config.farmDistance, 0))
+        humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, mobPosition)
+    end
     
     -- Attack
-    if config.autoClick then
-        local tool = character:FindFirstChildOfClass("Tool")
-        if tool then
-            tool:Activate()
-        end
+    local tool = character:FindFirstChildOfClass("Tool")
+    if tool and tool:FindFirstChild("Handle") then
+        tool:Activate()
     end
 end
 
@@ -261,6 +321,11 @@ RunService.RenderStepped:Connect(function()
             humanoid.JumpPower = config.jumpPower
         end
         
+        -- Bring Mob (hisap musuh)
+        if config.bringMob and humanoidRootPart then
+            bringAllMobs()
+        end
+        
         -- Auto Farm
         if config.autoFarm and humanoidRootPart then
             local mob = getClosestMob()
@@ -270,7 +335,7 @@ RunService.RenderStepped:Connect(function()
         end
         
         -- Fast Attack
-        if config.fastAttack then
+        if config.fastAttack and config.autoFarm then
             local tool = character and character:FindFirstChildOfClass("Tool")
             if tool then
                 tool:Activate()
@@ -311,12 +376,39 @@ local Window = Rayfield:CreateWindow({
 -- Tab: Auto Farm
 local FarmTab = Window:CreateTab("🌾 Auto Farm", 4483362458)
 
+FarmTab:CreateSection("Main Farm Settings")
+
 FarmTab:CreateToggle({
     Name = "Auto Farm Level",
     CurrentValue = false,
     Flag = "AutoFarmToggle",
     Callback = function(value)
         config.autoFarm = value
+        if value then
+            config.autoClick = true
+            config.fastAttack = true
+        end
+    end,
+})
+
+FarmTab:CreateToggle({
+    Name = "Bring Mob (Hisap Musuh)",
+    CurrentValue = false,
+    Flag = "BringMobToggle",
+    Callback = function(value)
+        config.bringMob = value
+    end,
+})
+
+FarmTab:CreateSlider({
+    Name = "Bring Radius",
+    Range = {100, 500},
+    Increment = 10,
+    Suffix = "studs",
+    CurrentValue = 300,
+    Flag = "BringRadiusSlider",
+    Callback = function(value)
+        config.bringRadius = value
     end,
 })
 
@@ -337,20 +429,10 @@ FarmTab:CreateToggle({
     end,
 })
 
-FarmTab:CreateSlider({
-    Name = "Farm Distance",
-    Range = {5, 30},
-    Increment = 1,
-    Suffix = "studs",
-    CurrentValue = 15,
-    Flag = "FarmDistanceSlider",
-    Callback = function(value)
-        config.farmDistance = value
-    end,
-})
+FarmTab:CreateSection("Attack Settings")
 
 FarmTab:CreateToggle({
-    Name = "Auto Click (Attack)",
+    Name = "Auto Attack",
     CurrentValue = false,
     Flag = "AutoClickToggle",
     Callback = function(value)
@@ -364,6 +446,18 @@ FarmTab:CreateToggle({
     Flag = "FastAttackToggle",
     Callback = function(value)
         config.fastAttack = value
+    end,
+})
+
+FarmTab:CreateSlider({
+    Name = "Farm Distance (No Bring)",
+    Range = {5, 30},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = 15,
+    Flag = "FarmDistanceSlider",
+    Callback = function(value)
+        config.farmDistance = value
     end,
 })
 
