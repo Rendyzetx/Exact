@@ -61,6 +61,55 @@ if config.antiAFK then
     end)
 end
 
+-- Highlight (Outline) Character untuk indikator auto farm aktif
+local characterHighlight = nil
+
+local function createCharacterHighlight()
+    if characterHighlight then return end
+    
+    pcall(function()
+        characterHighlight = Instance.new("Highlight")
+        characterHighlight.Name = "AutoFarmIndicator"
+        characterHighlight.FillColor = Color3.fromRGB(0, 255, 0) -- Hijau
+        characterHighlight.OutlineColor = Color3.fromRGB(255, 255, 255) -- Putih
+        characterHighlight.FillTransparency = 0.5
+        characterHighlight.OutlineTransparency = 0
+        characterHighlight.Enabled = false
+        characterHighlight.Parent = character
+    end)
+end
+
+local function updateCharacterHighlight()
+    pcall(function()
+        if config.autoFarm then
+            if not characterHighlight or not characterHighlight.Parent then
+                createCharacterHighlight()
+            end
+            if characterHighlight then
+                characterHighlight.Enabled = true
+            end
+        else
+            if characterHighlight then
+                characterHighlight.Enabled = false
+            end
+        end
+    end)
+end
+
+-- Create highlight saat script load
+if character then
+    createCharacterHighlight()
+end
+
+-- Update highlight saat character respawn
+localPlayer.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    humanoid = character:WaitForChild("Humanoid")
+    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+    wait(0.5)
+    createCharacterHighlight()
+end)
+
 -- ESP Functions
 local espObjects = {}
 
@@ -187,7 +236,8 @@ end
 local function bringAllMobs()
     if not config.autoFarm or not humanoidRootPart then return end
     
-    local bringPosition = humanoidRootPart.CFrame * CFrame.new(0, config.farmDistance, 0)
+    -- Posisi bring: DI BAWAH kaki player
+    local bringPosition = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
     local enemies = Workspace:FindFirstChild("Enemies")
     if not enemies then return end
     
@@ -204,23 +254,27 @@ local function bringAllMobs()
                     for _, part in pairs(mob:GetDescendants()) do
                         if part:IsA("BasePart") then
                             part.CanCollide = false
+                            part.Massless = true
                         end
                     end
                     
-                    -- Bring mob to player (di depan player)
+                    -- Bring mob ke BAWAH player
                     mobRoot.CFrame = bringPosition
                     mobRoot.Velocity = Vector3.new(0, 0, 0)
                     mobRoot.RotVelocity = Vector3.new(0, 0, 0)
                     
-                    -- Disable mob movement
+                    -- Freeze mob
                     if mobHumanoid then
                         mobHumanoid.WalkSpeed = 0
                         mobHumanoid.JumpPower = 0
+                        mobHumanoid.PlatformStand = true
                     end
                     
-                    -- Anchor mob (freeze in place)
+                    -- Size adjustment untuk stack better
                     pcall(function()
-                        mobRoot.Anchored = true
+                        if mobRoot:IsA("BasePart") then
+                            mobRoot.Size = Vector3.new(2, 2, 2)
+                        end
                     end)
                 end
             end
@@ -309,8 +363,12 @@ RunService.RenderStepped:Connect(function()
             if character then
                 humanoid = character:WaitForChild("Humanoid")
                 humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+                createCharacterHighlight()
             end
         end
+        
+        -- Update Highlight Indicator
+        updateCharacterHighlight()
         
         -- No Clip
         if config.noClip and character then
@@ -396,20 +454,20 @@ FarmTab:CreateToggle({
             config.fastAttack = true
             Rayfield:Notify({
                 Title = "Auto Farm",
-                Content = "✅ Enabled (Bring Mob aktif otomatis)",
+                Content = "✅ Enabled | Outline hijau = aktif",
                 Duration = 3,
             })
         else
             Rayfield:Notify({
                 Title = "Auto Farm",
-                Content = "❌ Disabled",
+                Content = "❌ Disabled | Outline hilang",
                 Duration = 2,
             })
         end
     end,
 })
 
-FarmTab:CreateLabel("Info: Musuh akan dihisap otomatis ke depan Anda")
+FarmTab:CreateLabel("Info: Musuh dihisap ke bawah kaki Anda")
 
 FarmTab:CreateSlider({
     Name = "Bring Radius (Jarak Hisap)",
@@ -590,6 +648,48 @@ PlayerTab:CreateButton({
 
 -- Tab: ESP & Visuals
 local ESPTab = Window:CreateTab("👁️ ESP", 4483362458)
+
+ESPTab:CreateSection("Character Indicator")
+
+ESPTab:CreateLabel("Outline Character = Auto Farm Aktif")
+
+ESPTab:CreateColorPicker({
+    Name = "Outline Color",
+    Color = Color3.fromRGB(255, 255, 255),
+    Flag = "OutlineColor",
+    Callback = function(value)
+        if characterHighlight then
+            characterHighlight.OutlineColor = value
+        end
+    end,
+})
+
+ESPTab:CreateColorPicker({
+    Name = "Fill Color",
+    Color = Color3.fromRGB(0, 255, 0),
+    Flag = "FillColor",
+    Callback = function(value)
+        if characterHighlight then
+            characterHighlight.FillColor = value
+        end
+    end,
+})
+
+ESPTab:CreateSlider({
+    Name = "Fill Transparency",
+    Range = {0, 1},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = 0.5,
+    Flag = "FillTransparency",
+    Callback = function(value)
+        if characterHighlight then
+            characterHighlight.FillTransparency = value
+        end
+    end,
+})
+
+ESPTab:CreateSection("ESP Settings")
 
 ESPTab:CreateToggle({
     Name = "Mob ESP",
