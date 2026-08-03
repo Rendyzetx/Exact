@@ -1,254 +1,379 @@
 --[[
-    recon2_attack.lua - Recon ronde 2: cari pemicu attack yang benar
+    recon3_attack.lua - Recon dengan OUTPUT DI LAYAR (tidak butuh console F9)
     by Tezydner (dibantu Notion AI)
 
-    TEMUAN RONDE 1:
-      - PlayerScripts.CombatFramework TIDAK ADA di versi ini -> semua jalur
-        activeController percuma.
-      - Hit asli dikirim lewat remote obfuscated "811" dengan token sesi,
-        BUKAN sesuatu yang aman kita karang sendiri.
-      - Jadi: kita tidak memalsukan hit. Kita picu tombol attack milik game,
-        biar game sendiri yang menghitung hitbox dan mengirim hit-nya.
+    Perbaikan dari recon2:
+      - Semua hasil tampil di panel GUI dalam game, bukan print ke console.
+      - Tidak lagi scan ReplicatedStorage:GetDescendants() (bisa bikin freeze
+        di Blox Fruits karena isinya puluhan ribu instance).
+      - Setiap bagian dibungkus pcall sendiri, jadi satu error tidak
+        mematikan seluruh script diam-diam.
 
     CARA PAKAI:
-      1. Jalankan SENDIRIAN (hub jangan jalan).
-      2. Berdiri DEKAT mob (5-10 stud) supaya hitbox kena.
-      3. Diam saja. Script akan mengklik tombol attack 3x sendiri setelah
-         hitung mundur 5 detik, lalu melaporkan apakah RE/RegisterAttack
-         benar-benar terkirim.
-      4. Kirim seluruh output console (F9).
+      1. Jalankan sendirian. Panel hitam muncul di kiri layar.
+      2. Berdiri DEKAT mob (5-10 stud).
+      3. Pencet tombol START di panel, lalu JANGAN sentuh apa pun 15 detik.
+      4. Screenshot panelnya, atau pencet COPY kalau tombolnya aktif.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GuiService = game:GetService("GuiService")
-local UserInputService = game:GetService("UserInputService")
 local localPlayer = Players.LocalPlayer
 
-local report = {}
-local function log(text)
-	table.insert(report, tostring(text))
-	print("[RECON2] " .. tostring(text))
+-- ============================================================
+-- PANEL OUTPUT
+-- ============================================================
+local lines = {}
+local label, scroll
+
+local function refresh()
+	if not label then return end
+	label.Text = table.concat(lines, "\n")
+	label.Size = UDim2.new(1, -10, 0, math.max(300, #lines * 15))
+	if scroll then
+		scroll.CanvasSize = UDim2.new(0, 0, 0, label.Size.Y.Offset + 20)
+	end
 end
+
+local function log(text)
+	table.insert(lines, tostring(text))
+	print("[R3] " .. tostring(text))
+	refresh()
+end
+
 local function section(title)
 	log("")
 	log("===== " .. title .. " =====")
 end
 
--- ============================================================
--- A. CAPABILITY (dites ulang, ronde 1 salah deteksi)
--- ============================================================
-section("A. CAPABILITY (ulang)")
-
-local caps = {
-	hookmetamethod = hookmetamethod,
-	getnamecallmethod = getnamecallmethod,
-	getrawmetatable = getrawmetatable,
-	setreadonly = setreadonly,
-	hookfunction = hookfunction,
-	firesignal = firesignal,
-	getconnections = getconnections,
-	setclipboard = setclipboard,
-	getgc = getgc,
-	getsenv = getsenv,
-}
-for name, fn in pairs(caps) do
-	log(string.format("  %-18s %s", name, fn and "ADA" or "tidak ada"))
-end
-log("  VirtualInputManager: " .. tostring(pcall(function()
-	return game:GetService("VirtualInputManager")
-end)))
-
--- ============================================================
--- B. REMOTE HIT YANG OBFUSCATED
--- ============================================================
-section("B. REMOTE HIT")
-
-local net = ReplicatedStorage:FindFirstChild("Modules")
-net = net and net:FindFirstChild("Net")
-log("RE/RegisterAttack: " .. tostring(net and net:FindFirstChild("RE/RegisterAttack") ~= nil))
-log("RE/RegisterHit   : " .. tostring(net and net:FindFirstChild("RE/RegisterHit") ~= nil))
-
-for _, item in ipairs(ReplicatedStorage:GetDescendants()) do
-	if (item:IsA("RemoteEvent") or item:IsA("RemoteFunction")) and tonumber(item.Name) then
-		log(string.format("  remote angka: %-6s di %s", item.Name, item.Parent:GetFullName()))
+local function step(name, fn)
+	local ok, err = pcall(fn)
+	if not ok then
+		log("!! ERROR di " .. name .. ": " .. tostring(err))
 	end
 end
 
--- ============================================================
--- C. TOMBOL DI PLAYERGUI
--- ============================================================
-section("C. GUI BUTTON")
+local gui = Instance.new("ScreenGui")
+gui.Name = "Recon3"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-local playerGui = localPlayer:FindFirstChildOfClass("PlayerGui")
+local parented = pcall(function()
+	gui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+end)
+if not parented then
+	gui.Parent = localPlayer:WaitForChild("PlayerGui")
+end
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 430, 0, 330)
+frame.Position = UDim2.new(0, 10, 0, 40)
+frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
+frame.BackgroundTransparency = 0.08
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = gui
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 26)
+title.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
+title.BorderSizePixel = 0
+title.Text = "RECON 3 - jalur attack"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 15
+title.Parent = frame
+
+local function makeButton(text, xScale, xOffset, width, color)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, width, 0, 24)
+	b.Position = UDim2.new(xScale, xOffset, 0, 30)
+	b.BackgroundColor3 = color
+	b.BorderSizePixel = 0
+	b.Text = text
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Font = Enum.Font.SourceSansBold
+	b.TextSize = 14
+	b.Parent = frame
+	return b
+end
+
+local startBtn = makeButton("START TES", 0, 6, 110, Color3.fromRGB(30, 130, 60))
+local copyBtn = makeButton("COPY", 0, 122, 70, Color3.fromRGB(70, 70, 80))
+local closeBtn = makeButton("TUTUP", 1, -76, 70, Color3.fromRGB(140, 40, 40))
+
+scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -8, 1, -64)
+scroll.Position = UDim2.new(0, 4, 0, 60)
+scroll.BackgroundTransparency = 1
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 6
+scroll.Parent = frame
+
+label = Instance.new("TextLabel")
+label.Size = UDim2.new(1, -10, 0, 300)
+label.BackgroundTransparency = 1
+label.Text = ""
+label.TextColor3 = Color3.fromRGB(210, 235, 210)
+label.Font = Enum.Font.Code
+label.TextSize = 12
+label.TextXAlignment = Enum.TextXAlignment.Left
+label.TextYAlignment = Enum.TextYAlignment.Top
+label.TextWrapped = true
+label.Parent = scroll
+
+closeBtn.MouseButton1Click:Connect(function()
+	gui:Destroy()
+end)
+
+copyBtn.MouseButton1Click:Connect(function()
+	if setclipboard then
+		pcall(setclipboard, table.concat(lines, "\n"))
+		copyBtn.Text = "TERSALIN"
+	else
+		copyBtn.Text = "NO CLIP"
+	end
+end)
+
+log("panel siap. kalau kamu lihat teks ini, script JALAN.")
+
+-- ============================================================
+-- A. CAPABILITY
+-- ============================================================
+step("A", function()
+	section("A. CAPABILITY")
+	local names = {
+		"hookmetamethod", "getnamecallmethod", "firesignal", "getconnections",
+		"setclipboard", "gethui", "getrawmetatable", "hookfunction",
+	}
+	local values = {
+		hookmetamethod, getnamecallmethod, firesignal, getconnections,
+		setclipboard, gethui, getrawmetatable, hookfunction,
+	}
+	for i, name in ipairs(names) do
+		log(string.format("  %-18s %s", name, values[i] and "ADA" or "-"))
+	end
+	log("  VirtualInputManager " .. (pcall(function()
+		return game:GetService("VirtualInputManager")
+	end) and "ADA" or "-"))
+end)
+
+-- ============================================================
+-- B. REMOTE (tanpa scan berat)
+-- ============================================================
+step("B", function()
+	section("B. REMOTE")
+	local modules = ReplicatedStorage:FindFirstChild("Modules")
+	local net = modules and modules:FindFirstChild("Net")
+	log("  Net folder: " .. (net and "ada" or "tidak ada"))
+	if net then
+		log("  RE/RegisterAttack: " .. tostring(net:FindFirstChild("RE/RegisterAttack") ~= nil))
+		log("  RE/RegisterHit   : " .. tostring(net:FindFirstChild("RE/RegisterHit") ~= nil))
+		for _, item in ipairs(net:GetChildren()) do
+			if tonumber(item.Name) then
+				log("  remote angka di Net: " .. item.Name)
+			end
+		end
+	end
+	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+	if remotes then
+		for _, item in ipairs(remotes:GetChildren()) do
+			if tonumber(item.Name) then
+				log("  remote angka di Remotes: " .. item.Name)
+			end
+		end
+	end
+end)
+
+-- ============================================================
+-- C. TOMBOL ATTACK
+-- ============================================================
+local candidate = nil
 local buttons = {}
 
-if playerGui then
+step("C", function()
+	section("C. TOMBOL")
+	local playerGui = localPlayer:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then
+		log("  PlayerGui tidak ada")
+		return
+	end
+
+	local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1, 1)
+	log("  viewport: " .. math.floor(viewport.X) .. "x" .. math.floor(viewport.Y))
+
+	local words = { "attack", "fist", "combat", "melee", "punch", "m1", "hit" }
+
 	for _, item in ipairs(playerGui:GetDescendants()) do
 		if item:IsA("ImageButton") or item:IsA("TextButton") then
-			local ok = pcall(function()
-				if item.Visible and item.AbsoluteSize.X > 20 and item.AbsoluteSize.Y > 20 then
-					table.insert(buttons, item)
+			pcall(function()
+				if item.Visible and item.AbsoluteSize.X >= 25 and item.AbsoluteSize.Y >= 25 then
+					local center = item.AbsolutePosition + item.AbsoluteSize / 2
+					local path = item:GetFullName():lower()
+					local score = 0
+					for _, w in ipairs(words) do
+						if path:find(w, 1, true) then score = score + 10 end
+					end
+					if center.Y > viewport.Y * 0.6 then score = score + 4 end
+					if center.X > viewport.X * 0.2 and center.X < viewport.X * 0.8 then score = score + 2 end
+					table.insert(buttons, { obj = item, score = score, center = center })
 				end
 			end)
 		end
 	end
-end
 
-log("tombol visible: " .. #buttons)
+	table.sort(buttons, function(a, b) return a.score > b.score end)
+	log("  total tombol visible: " .. #buttons)
 
-local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(0, 0)
-log("viewport: " .. tostring(viewport))
-
-local ATTACK_WORDS = { "attack", "fist", "combat", "melee", "hit", "punch", "m1" }
-
-local function scoreButton(btn)
-	local name = (btn.Name .. " " .. btn:GetFullName()):lower()
-	local score = 0
-	for _, word in ipairs(ATTACK_WORDS) do
-		if name:find(word, 1, true) then score = score + 10 end
+	for i = 1, math.min(#buttons, 15) do
+		local b = buttons[i]
+		log(string.format("  [%02d] s=%d (%d,%d) %dx%d %s",
+			i, b.score, b.center.X, b.center.Y,
+			b.obj.AbsoluteSize.X, b.obj.AbsoluteSize.Y, b.obj.Name))
+		log("       " .. b.obj:GetFullName())
 	end
-	-- tombol attack mobile biasanya di bawah, agak ke tengah/kanan
-	local pos = btn.AbsolutePosition + btn.AbsoluteSize / 2
-	if viewport.Y > 0 and pos.Y > viewport.Y * 0.6 then score = score + 3 end
-	if viewport.X > 0 and pos.X > viewport.X * 0.35 then score = score + 1 end
-	return score, pos
-end
 
-table.sort(buttons, function(a, b)
-	local sa = scoreButton(a)
-	local sb = scoreButton(b)
-	return sa > sb
+	candidate = buttons[1] and buttons[1].obj or nil
+	log("  KANDIDAT: " .. (candidate and candidate.Name or "tidak ada"))
 end)
 
-for i = 1, math.min(#buttons, 25) do
-	local btn = buttons[i]
-	local score, pos = scoreButton(btn)
-	log(string.format("  [%02d] score=%-3d pos=(%d,%d) size=(%d,%d) %s",
-		i, score, pos.X, pos.Y, btn.AbsoluteSize.X, btn.AbsoluteSize.Y, btn:GetFullName()))
-end
-
-local candidate = buttons[1]
-if candidate then
-	log("KANDIDAT: " .. candidate:GetFullName())
-else
-	log("tidak ada kandidat tombol")
-end
-
 -- ============================================================
--- D. HOOK PEMANTAU
+-- D. PEMANTAU
 -- ============================================================
-section("D. TES KLIK OTOMATIS")
+local fired = { attack = 0, hit = 0 }
 
-local fired = { attack = 0, hit = 0, other = 0 }
-local hookOk = false
-
-if hookmetamethod and getnamecallmethod then
+step("D", function()
+	section("D. PEMANTAU")
+	if not (hookmetamethod and getnamecallmethod) then
+		log("  hookmetamethod tidak ada -> hasil dinilai manual dari HP mob")
+		return
+	end
 	local old
 	old = hookmetamethod(game, "__namecall", function(self, ...)
 		local method = getnamecallmethod()
-		if method == "FireServer" or method == "InvokeServer" then
+		if method == "FireServer" then
 			pcall(function()
 				local n = self.Name
 				if n == "RE/RegisterAttack" then
 					fired.attack = fired.attack + 1
-					log("    >> RE/RegisterAttack terkirim!")
 				elseif n == "RE/RegisterHit" or tonumber(n) then
 					fired.hit = fired.hit + 1
-					log("    >> HIT terkirim lewat remote: " .. n)
 				end
 			end)
 		end
 		return old(self, ...)
 	end)
-	hookOk = true
-	log("pemantau aktif")
-else
-	log("hookmetamethod tidak ada, hasil tes tidak bisa dipastikan otomatis")
-end
+	log("  pemantau aktif")
+end)
 
 -- ============================================================
--- E. EKSEKUSI TES
+-- E. TES KLIK
 -- ============================================================
-local function clickViaSignal(btn)
+local function clickSignal(btn)
 	if not (firesignal and getconnections) then return false end
-	local ok = pcall(function()
-		for _, signal in ipairs({ btn.MouseButton1Down, btn.MouseButton1Click, btn.MouseButton1Up }) do
-			for _, conn in ipairs(getconnections(signal)) do
-				if conn.Fire then conn:Fire() end
+	return pcall(function()
+		for _, sig in ipairs({ btn.MouseButton1Down, btn.MouseButton1Click, btn.MouseButton1Up }) do
+			for _, c in ipairs(getconnections(sig)) do
+				if c.Fire then c:Fire() end
 			end
 		end
 	end)
-	return ok
 end
 
-local function clickViaVirtualUser(btn)
-	local ok = pcall(function()
+local function clickVirtualUser(btn)
+	return pcall(function()
 		local VirtualUser = game:GetService("VirtualUser")
 		local inset = GuiService:GetGuiInset()
-		local pos = btn.AbsolutePosition + btn.AbsoluteSize / 2
-		local x, y = pos.X, pos.Y + inset.Y
-		log(string.format("    klik VirtualUser di (%d, %d)", x, y))
+		local p = btn.AbsolutePosition + btn.AbsoluteSize / 2
+		local x, y = p.X, p.Y + inset.Y
+		log(string.format("    VU klik (%d,%d)", x, y))
 		VirtualUser:CaptureController()
 		VirtualUser:Button1Down(Vector2.new(x, y))
-		task.wait(0.05)
+		task.wait(0.06)
 		VirtualUser:Button1Up(Vector2.new(x, y))
 	end)
-	return ok
 end
 
-local function clickViaVIM(btn)
-	local ok = pcall(function()
+local function clickVIM(btn)
+	return pcall(function()
 		local vim = game:GetService("VirtualInputManager")
 		local inset = GuiService:GetGuiInset()
-		local pos = btn.AbsolutePosition + btn.AbsoluteSize / 2
-		local x, y = pos.X, pos.Y + inset.Y
-		log(string.format("    klik VIM di (%d, %d)", x, y))
+		local p = btn.AbsolutePosition + btn.AbsoluteSize / 2
+		local x, y = p.X, p.Y + inset.Y
+		log(string.format("    VIM klik (%d,%d)", x, y))
 		vim:SendMouseButtonEvent(x, y, 0, true, game, 1)
-		task.wait(0.05)
+		task.wait(0.06)
 		vim:SendMouseButtonEvent(x, y, 0, false, game, 1)
 	end)
-	return ok
 end
 
-task.spawn(function()
-	if not candidate then
-		log("tes dibatalkan: tombol tidak ketemu")
-		return
-	end
+local function clickTouch(btn)
+	return pcall(function()
+		local vim = game:GetService("VirtualInputManager")
+		local inset = GuiService:GetGuiInset()
+		local p = btn.AbsolutePosition + btn.AbsoluteSize / 2
+		local x, y = p.X, p.Y + inset.Y
+		log(string.format("    TOUCH (%d,%d)", x, y))
+		vim:SendTouchEvent(1, 0, x, y) -- Begin
+		task.wait(0.06)
+		vim:SendTouchEvent(1, 2, x, y) -- End
+	end)
+end
 
-	for i = 5, 1, -1 do
-		log("tes mulai dalam " .. i .. " detik - berdiri dekat mob, jangan pencet apa pun")
-		task.wait(1)
-	end
+local running = false
 
-	local methods = {
-		{ name = "firesignal", fn = clickViaSignal },
-		{ name = "VirtualUser", fn = clickViaVirtualUser },
-		{ name = "VirtualInputManager", fn = clickViaVIM },
-	}
+startBtn.MouseButton1Click:Connect(function()
+	if running then return end
+	running = true
+	startBtn.Text = "BERJALAN..."
 
-	for _, method in ipairs(methods) do
-		local before = fired.attack
-		log("-- metode: " .. method.name)
-		for _ = 1, 3 do
-			method.fn(candidate)
-			task.wait(0.4)
+	task.spawn(function()
+		section("E. TES KLIK")
+		if not candidate then
+			log("  batal: tombol kandidat tidak ada")
+			startBtn.Text = "START TES"
+			running = false
+			return
 		end
-		task.wait(0.6)
-		local delta = fired.attack - before
-		log(string.format("   hasil %s: RE/RegisterAttack +%d", method.name, delta))
-		if delta > 0 then
-			log("   *** METODE INI BERHASIL MEMICU ATTACK ***")
-		end
-	end
 
-	section("RINGKASAN")
-	log("total RegisterAttack: " .. fired.attack)
-	log("total hit terkirim  : " .. fired.hit)
-	if fired.attack == 0 then
-		log("Tidak ada satu pun metode klik yang tembus.")
-		log("Kirim daftar tombol di bagian C, mungkin kandidatnya salah pilih.")
-	end
-	log("SELESAI - salin seluruh output ini")
+		for i = 3, 1, -1 do
+			log("  mulai dalam " .. i .. " - jangan sentuh apa pun")
+			task.wait(1)
+		end
+
+		local methods = {
+			{ "firesignal", clickSignal },
+			{ "VirtualUser", clickVirtualUser },
+			{ "VIM mouse", clickVIM },
+			{ "VIM touch", clickTouch },
+		}
+
+		for _, m in ipairs(methods) do
+			local before = fired.attack
+			log("  -- " .. m[1])
+			for _ = 1, 3 do
+				m[2](candidate)
+				task.wait(0.35)
+			end
+			task.wait(0.5)
+			local delta = fired.attack - before
+			log(string.format("     hasil: RegisterAttack +%d", delta))
+			if delta > 0 then
+				log("     *** BERHASIL ***")
+			end
+		end
+
+		section("RINGKASAN")
+		log("  RegisterAttack total: " .. fired.attack)
+		log("  hit terkirim total  : " .. fired.hit)
+		if fired.attack == 0 then
+			log("  Tidak ada yang tembus. Kirim daftar tombol bagian C.")
+		end
+		log("  SELESAI")
+		startBtn.Text = "ULANGI"
+		running = false
+	end)
 end)
