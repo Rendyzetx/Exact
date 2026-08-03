@@ -1,0 +1,85 @@
+=====================================
+LOADSTRING RECON_ATTACK.LUA
+=====================================
+
+┌─────────────────────────────────────┐
+│  CARA 1: GitHub (Recommended)       │
+└─────────────────────────────────────┘
+
+1. Upload file recon_attack.lua ke GitHub
+2. Execute loadstring ini:
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rendyzetx/Exact/main/recon_attack.lua"))()
+
+
+┌─────────────────────────────────────┐
+│  CARA 2: Pastebin                   │
+└─────────────────────────────────────┘
+
+1. Upload ke pastebin.com
+2. Execute loadstring ini (ganti PASTE_ID):
+
+loadstring(game:HttpGet("https://pastebin.com/raw/PASTE_ID"))()
+
+
+┌─────────────────────────────────────┐
+│  CARA PAKAI SCRIPT                  │
+└─────────────────────────────────────┘
+
+PENTING: Jangan jalankan BloxFruits.lua dulu!
+
+1. Execute loadstring recon_attack.lua
+2. Tunggu muncul "SNIFFER AKTIF"
+3. ATTACK MANUAL ke mob 3-5 kali
+   - Equip weapon
+   - Click attack manual
+   - Jangan pakai auto farm
+4. Tunggu 30 detik
+5. Hasil auto-copy ke clipboard
+6. Paste hasil ke chat/notepad
+
+
+┌─────────────────────────────────────┐
+│  APA YANG SCRIPT INI LAKUKAN        │
+└─────────────────────────────────────┘
+
+✅ Cek executor capability
+✅ Cek weapon yang equipped
+✅ Cek CombatFramework module
+✅ Cek remote events yang tersedia
+✅ SNIFF remote calls saat attack manual
+✅ Identifikasi remote & argument yang benar
+
+
+┌─────────────────────────────────────┐
+│  SETELAH DAPAT HASIL                │
+└─────────────────────────────────────┘
+
+1. Paste hasil ke chat dengan Kiro/AI
+2. AI akan analisis hasil
+3. AI akan fix BloxFruits.lua
+4. Execute ulang BloxFruits.lua yang sudah di-fix
+5. Attack akan work!
+
+
+┌─────────────────────────────────────┐
+│  TROUBLESHOOTING                    │
+└─────────────────────────────────────┘
+
+❌ Sniffer tidak jalan?
+   → Executor Anda tidak support hookmetamethod
+   → Hasil bagian A-E tetap berguna
+
+❌ Tidak ada hasil di clipboard?
+   → Cek console (F9)
+   → Copy manual dari console
+
+❌ Attack tidak tercatat?
+   → Pastikan equip weapon
+   → Attack beberapa kali
+   → Tunggu sampai timer selesai
+
+
+=====================================
+GOOD LUCK! 🔍
+=====================================
