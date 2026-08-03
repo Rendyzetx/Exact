@@ -419,26 +419,23 @@ local function attackMob(mob)
         end
     end
 
-    -- Jalur 2: kirim input klik asli, biar game yang memproses sendiri.
-    local camera = Workspace.CurrentCamera
-    if camera then
-        local ok = pcall(function()
-            VirtualUser:CaptureController()
-            VirtualUser:Button1Down(Vector2.new(0, 0), camera.CFrame)
-            task.wait()
-            VirtualUser:Button1Up(Vector2.new(0, 0), camera.CFrame)
-        end)
-        if ok then
-            attackNotify("VirtualUser click")
-            return
-        end
-    end
+    -- DIHAPUS di v3: jalur VirtualUser:Button1Down(Vector2.new(0, 0), ...).
+    -- Vector2(0,0) itu KOORDINAT LAYAR pojok kiri atas, bukan arah serangan.
+    -- Dipanggil tiap 0.1 detik, jadi yang keklik malah panel Rayfield:
+    -- slider Attack Range geser sendiri, toggle Attack Debug on/off sendiri,
+    -- kursor kebawa, dan kliknya diserap GUI sehingga tidak pernah sampai
+    -- ke game. Jangan pernah pakai VirtualUser tanpa koordinat yang benar
+    -- dan tanpa cek apakah kursor sedang di atas GUI.
 
-    -- Jalur 3: cadangan terakhir.
+    -- Jalur 2: cadangan terakhir.
     pcall(function()
         tool:Activate()
-        attackNotify("Tool:Activate()")
+        attackNotify("Tool:Activate() (fallback lemah)")
     end)
+
+    if not controller then
+        attackNotify("activeController nil - jalankan recon_attack.lua")
+    end
 end
 
 -- Auto Quest Functions
@@ -706,7 +703,7 @@ end)
 -- ============================================================
 
 local Window = Rayfield:CreateWindow({
-    Name = "🍇 Blox Fruits Hub | by Rendyzet",
+    Name = "🍇 Blox Fruits Hub | by Tezydner",
     Icon = 0,
     LoadingTitle = "Blox Fruits Script",
     LoadingSubtitle = "Loading...",
