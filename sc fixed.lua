@@ -24,9 +24,6 @@ local config = {
     farmMethod = "Level",
     farmDistance = 20,
     farmMode = "TP to Mob", -- "TP to Mob" (aman) / "Fly + Bring" (legacy)
-    attackRange = 18,       -- hitbox melee realistis; lebih jauh = ditolak server
-    autoEquipWeapon = true, -- equip senjata otomatis saat auto farm
-    attackDebug = false,    -- notifikasi jalur attack mana yang kepakai
     autoFarmMastery = false,
     bringRadius = 300,
     
@@ -314,131 +311,43 @@ local function bringAllMobs()
     end
 end
 
--- FIX v2: musuh tidak pernah kena hit. Empat penyebab yang diperbaiki:
---  (a) senjata tidak pernah di-equip otomatis -> attackMob selalu return
---      duluan di cek FindFirstChildOfClass("Tool").
---  (b) combatFramework di-cache SEKALI saat load; activeController baru
---      terisi setelah senjata ter-equip, jadi nilainya nil selamanya.
---  (c) tool:Activate() saja tidak memicu damage: combat Blox Fruits jalan
---      lewat CombatFramework yang mendengar input mouse, bukan Tool.Activated.
---  (d) player tidak pernah menghadap mob, padahal hitbox melee arahnya
---      ke depan karakter.
-
-local WEAPON_PRIORITY = { "Melee", "Sword", "Blox Fruit" }
-
-local function findWeaponIn(container)
-    if not container then return nil end
-    for _, want in ipairs(WEAPON_PRIORITY) do
-        for _, tool in ipairs(container:GetChildren()) do
-            if tool:IsA("Tool") and (tool.ToolTip or "") == want then
-                return tool
-            end
-        end
-    end
-    for _, tool in ipairs(container:GetChildren()) do
-        if tool:IsA("Tool") then return tool end
-    end
-    return nil
-end
-
-local function ensureWeaponEquipped()
-    if not character or not humanoid then return nil end
-    local equipped = character:FindFirstChildOfClass("Tool")
-    if equipped and equipped.Parent then return equipped end
-    if not config.autoEquipWeapon then return nil end
-    local tool = findWeaponIn(localPlayer:FindFirstChild("Backpack"))
-    if tool then
-        pcall(function() humanoid:EquipTool(tool) end)
-    end
-    return character:FindFirstChildOfClass("Tool")
-end
-
--- Jangan di-cache: activeController baru ada setelah senjata ter-equip.
-local function getCombatController()
-    local ok, controller = pcall(function()
-        local scripts = localPlayer:FindFirstChild("PlayerScripts")
-        local module = scripts and scripts:FindFirstChild("CombatFramework")
-        if not module then return nil end
-        local cf = require(module)
-        return cf and cf.activeController or nil
+-- FIX: CommF_:InvokeServer("Attack") bukan endpoint valid dan errornya
+-- ketelan pcall. Jalur hit yang benar = tool:Activate() + CombatFramework.
+local combatFramework = nil
+task.spawn(function()
+    local ok, mod = pcall(function()
+        local scripts = localPlayer:WaitForChild("PlayerScripts", 10)
+        return require(scripts:WaitForChild("CombatFramework", 10))
     end)
-    if ok then return controller end
-    return nil
-end
+    if ok then combatFramework = mod end
+end)
 
-local attackDebugSeen = {}
-local function attackNotify(path)
-    if not config.attackDebug or attackDebugSeen[path] then return end
-    attackDebugSeen[path] = true
-    pcall(function()
-        Rayfield:Notify({ Title = "Attack path", Content = path, Duration = 4 })
-    end)
-end
+local MAX_ATTACK_RANGE = 60 -- server menolak hit di luar jangkauan wajar
 
 local function attackMob(mob)
     local mobRoot = mob and mob:FindFirstChild("HumanoidRootPart")
     if not mobRoot or not humanoidRootPart or not character then return end
 
-    -- percuma spam kalau target di luar hitbox: pasti ditolak server
-    if (humanoidRootPart.Position - mobRoot.Position).Magnitude > config.attackRange then
-        attackNotify("target di luar Attack Range")
+    -- percuma spam kalau target di luar jangkauan: pasti ditolak server
+    if (humanoidRootPart.Position - mobRoot.Position).Magnitude > MAX_ATTACK_RANGE then
         return
     end
 
-    local tool = ensureWeaponEquipped()
-    if not tool then
-        attackNotify("tidak ada Tool di Backpack/Character")
-        return
-    end
+    local tool = character:FindFirstChildOfClass("Tool")
+    if not tool or not tool.Parent then return end
 
-    -- hadapkan badan ke mob (horizontal saja, biar karakter tidak nunging)
-    pcall(function()
-        local from = humanoidRootPart.Position
-        local look = Vector3.new(mobRoot.Position.X, from.Y, mobRoot.Position.Z)
-        if (look - from).Magnitude > 0.1 then
-            humanoidRootPart.CFrame = CFrame.lookAt(from, look)
-        end
-    end)
-
-    -- Jalur 1: CombatFramework. Paling benar karena remote + argumennya
-    -- diisi oleh game sendiri, bukan tebakan kita.
-    local controller = getCombatController()
-    if controller then
-        local ok = pcall(function()
-            if controller.attack then
-                controller:attack()
-            elseif controller.Attack then
-                controller:Attack()
-            else
-                error("no attack method")
-            end
-        end)
-        if ok then
-            attackNotify("CombatFramework:attack()")
-            return
-        end
-    end
-
-    -- Jalur 2: kirim input klik asli, biar game yang memproses sendiri.
-    local camera = Workspace.CurrentCamera
-    if camera then
-        local ok = pcall(function()
-            VirtualUser:CaptureController()
-            VirtualUser:Button1Down(Vector2.new(0, 0), camera.CFrame)
-            task.wait()
-            VirtualUser:Button1Up(Vector2.new(0, 0), camera.CFrame)
-        end)
-        if ok then
-            attackNotify("VirtualUser click")
-            return
-        end
-    end
-
-    -- Jalur 3: cadangan terakhir.
     pcall(function()
         tool:Activate()
-        attackNotify("Tool:Activate()")
     end)
+
+    if combatFramework then
+        pcall(function()
+            local controller = combatFramework.activeController
+            if controller and controller.attack then
+                controller:attack()
+            end
+        end)
+    end
 end
 
 -- Auto Quest Functions
@@ -623,19 +532,7 @@ RunService.RenderStepped:Connect(function()
                 local mob = getClosestMob()
                 local mobRoot = mob and mob:FindFirstChild("HumanoidRootPart")
                 if mobRoot then
-                    -- FIX v2: dulu posisinya mobRoot.CFrame * (0, farmDistance, 0).
-                    -- Dua masalah: jaraknya bisa lebih jauh dari hitbox (hit
-                    -- ditolak server), dan arah hadap ikut rotasi mob alias acak.
-                    local reach = math.max(6, config.attackRange - 4)
-                    local up = math.clamp(config.farmDistance, 3, reach)
-                    local target = mobRoot.Position
-                    local pos = target + Vector3.new(0, up, up * 0.4)
-                    local look = Vector3.new(target.X, pos.Y, target.Z)
-                    if (look - pos).Magnitude > 0.1 then
-                        humanoidRootPart.CFrame = CFrame.lookAt(pos, look)
-                    else
-                        humanoidRootPart.CFrame = CFrame.new(pos)
-                    end
+                    humanoidRootPart.CFrame = mobRoot.CFrame * CFrame.new(0, config.farmDistance, 0)
                     humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 end
             else
@@ -674,9 +571,6 @@ task.spawn(function()
         
         pcall(function()
             if config.autoFarm and humanoidRootPart then
-                -- FIX v2: pastikan senjata ter-equip sebelum nyari target,
-                -- karena activeController baru hidup setelah tool dipegang.
-                ensureWeaponEquipped()
                 local mob = getClosestMob()
                 if mob then
                     attackMob(mob)
@@ -706,7 +600,7 @@ end)
 -- ============================================================
 
 local Window = Rayfield:CreateWindow({
-    Name = "🍇 Blox Fruits Hub | by Rendyzet",
+    Name = "🍇 Blox Fruits Hub | by Tezydner",
     Icon = 0,
     LoadingTitle = "Blox Fruits Script",
     LoadingSubtitle = "Loading...",
@@ -825,45 +719,6 @@ FarmTab:CreateSlider({
 })
 
 FarmTab:CreateLabel("Semakin kecil = semakin cepat attack")
-
-FarmTab:CreateSlider({
-    Name = "Attack Range",
-    Range = {8, 40},
-    Increment = 1,
-    Suffix = "stud",
-    CurrentValue = 18,
-    Flag = "AttackRangeSlider",
-    Callback = function(value)
-        config.attackRange = value
-    end,
-})
-
-FarmTab:CreateLabel("Kalau hit tidak masuk, turunkan Attack Range ke 12-15")
-
-FarmTab:CreateToggle({
-    Name = "Auto Equip Weapon",
-    CurrentValue = true,
-    Flag = "AutoEquipWeaponToggle",
-    Callback = function(value)
-        config.autoEquipWeapon = value
-    end,
-})
-
-FarmTab:CreateToggle({
-    Name = "Attack Debug (notifikasi)",
-    CurrentValue = false,
-    Flag = "AttackDebugToggle",
-    Callback = function(value)
-        config.attackDebug = value
-        if value then
-            Rayfield:Notify({
-                Title = "Attack Debug",
-                Content = "Notifikasi jalur attack aktif",
-                Duration = 4,
-            })
-        end
-    end,
-})
 
 -- Tab: Combat
 local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
