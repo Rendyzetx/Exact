@@ -22,7 +22,8 @@ local config = {
     -- Auto Farm
     autoFarm = false,
     farmMethod = "Level",
-    farmDistance = 15,
+    farmDistance = 20,
+    farmMode = "TP to Mob", -- "TP to Mob" (aman) / "Fly + Bring" (legacy)
     autoFarmMastery = false,
     bringRadius = 300,
     
@@ -53,19 +54,31 @@ local config = {
     autoBuyMelee = false,
 }
 
--- Anti-AFK
-if config.antiAFK then
-    localPlayer.Idled:Connect(function()
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new())
-    end)
+-- Anti-AFK (FIX: bisa dimatikan, koneksinya disimpan)
+local antiAfkConnection = nil
+
+local function setAntiAFK(enabled)
+    if enabled then
+        if antiAfkConnection then return end
+        antiAfkConnection = localPlayer.Idled:Connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+    elseif antiAfkConnection then
+        antiAfkConnection:Disconnect()
+        antiAfkConnection = nil
+    end
 end
+
+setAntiAFK(config.antiAFK)
 
 -- Highlight (Outline) Character untuk indikator auto farm aktif
 local characterHighlight = nil
 
 local function createCharacterHighlight()
-    if characterHighlight then return end
+    if characterHighlight and characterHighlight.Parent then return end
+    characterHighlight = nil
+    if not character then return end
     
     pcall(function()
         characterHighlight = Instance.new("Highlight")
@@ -106,14 +119,18 @@ localPlayer.CharacterAdded:Connect(function(newChar)
     character = newChar
     humanoid = character:WaitForChild("Humanoid")
     humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    wait(0.5)
+    -- FIX: wajib reset referensi lama, kalau tidak guard di
+    -- createCharacterHighlight() bikin indikator hilang permanen
+    characterHighlight = nil
+    task.wait(0.5)
     createCharacterHighlight()
 end)
 
 -- ESP Functions
-local espObjects = {}
+local mobESPObjects = {}
+local fruitESPObjects = {}
 
-local function createESP(object, text, color)
+local function createESP(object, text, color, store)
     if not object or not object:IsA("BasePart") then return end
     
     local billboardGui = Instance.new("BillboardGui")
@@ -133,44 +150,53 @@ local function createESP(object, text, color)
     textLabel.Parent = billboardGui
     
     billboardGui.Parent = object
-    table.insert(espObjects, billboardGui)
+    table.insert(store or mobESPObjects, billboardGui)
     return billboardGui
 end
 
-local function clearESP()
-    for _, esp in ipairs(espObjects) do
+local function clearESPList(list)
+    for _, esp in ipairs(list) do
         if esp then esp:Destroy() end
     end
-    espObjects = {}
+    table.clear(list)
+end
+
+local function clearESP()
+    clearESPList(mobESPObjects)
+    clearESPList(fruitESPObjects)
 end
 
 local function updateMobESP()
-    clearESP()
+    -- FIX: dulu clearESP() ikut menghapus ESP fruit tiap detik
+    clearESPList(mobESPObjects)
     if not config.mobESP then return end
-    
+    if not humanoidRootPart then return end
+
     local enemies = Workspace:FindFirstChild("Enemies")
-    if enemies then
-        for _, mob in pairs(enemies:GetChildren()) do
-            if mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChild("Humanoid") then
-                local humanoid = mob.Humanoid
-                if humanoid.Health > 0 then
-                    local distance = (humanoidRootPart.Position - mob.HumanoidRootPart.Position).Magnitude
-                    local text = string.format("%s\n[%d HP] [%.0fm]", mob.Name, humanoid.Health, distance)
-                    createESP(mob.HumanoidRootPart, text, Color3.fromRGB(255, 0, 0))
-                end
-            end
+    if not enemies then return end
+
+    for _, mob in pairs(enemies:GetChildren()) do
+        local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+        local mobHumanoid = mob:FindFirstChild("Humanoid")
+        if mobRoot and mobHumanoid and mobHumanoid.Health > 0 then
+            local distance = (humanoidRootPart.Position - mobRoot.Position).Magnitude
+            local text = string.format("%s\n[%d HP] [%.0fm]", mob.Name, mobHumanoid.Health, distance)
+            createESP(mobRoot, text, Color3.fromRGB(255, 0, 0), mobESPObjects)
         end
     end
 end
 
 local function updateFruitESP()
-    if not config.fruitESP then return end
-    
+    if not config.fruitESP then
+        clearESPList(fruitESPObjects)
+        return
+    end
+
     for _, fruit in pairs(Workspace:GetChildren()) do
         if fruit:IsA("Tool") or (fruit:IsA("Model") and fruit:FindFirstChild("Handle")) then
             local handle = fruit:FindFirstChild("Handle")
             if handle and not handle:FindFirstChild("ESP") then
-                createESP(handle, fruit.Name, Color3.fromRGB(255, 165, 0))
+                createESP(handle, fruit.Name, Color3.fromRGB(255, 165, 0), fruitESPObjects)
             end
         end
     end
@@ -285,42 +311,116 @@ local function bringAllMobs()
     end
 end
 
-local function attackMob(mob)
-    if not mob or not mob:FindFirstChild("HumanoidRootPart") then return end
-    
-    -- Attack dengan tool activation
-    local tool = character:FindFirstChildOfClass("Tool")
-    if tool and tool:FindFirstChild("Handle") then
-        tool:Activate()
-    end
-    
-    -- Method combat remote untuk Blox Fruits (lebih aman)
-    pcall(function()
-        local combat = ReplicatedStorage:FindFirstChild("Remotes")
-        if combat then
-            local combatEvent = combat:FindFirstChild("CommF_")
-            if combatEvent then
-                combatEvent:InvokeServer("Attack")
-            end
-        end
+-- FIX: CommF_:InvokeServer("Attack") bukan endpoint valid dan errornya
+-- ketelan pcall. Jalur hit yang benar = tool:Activate() + CombatFramework.
+local combatFramework = nil
+task.spawn(function()
+    local ok, mod = pcall(function()
+        local scripts = localPlayer:WaitForChild("PlayerScripts", 10)
+        return require(scripts:WaitForChild("CombatFramework", 10))
     end)
+    if ok then combatFramework = mod end
+end)
+
+local MAX_ATTACK_RANGE = 60 -- server menolak hit di luar jangkauan wajar
+
+local function attackMob(mob)
+    local mobRoot = mob and mob:FindFirstChild("HumanoidRootPart")
+    if not mobRoot or not humanoidRootPart or not character then return end
+
+    -- percuma spam kalau target di luar jangkauan: pasti ditolak server
+    if (humanoidRootPart.Position - mobRoot.Position).Magnitude > MAX_ATTACK_RANGE then
+        return
+    end
+
+    local tool = character:FindFirstChildOfClass("Tool")
+    if not tool or not tool.Parent then return end
+
+    pcall(function()
+        tool:Activate()
+    end)
+
+    if combatFramework then
+        pcall(function()
+            local controller = combatFramework.activeController
+            if controller and controller.attack then
+                controller:attack()
+            end
+        end)
+    end
 end
 
 -- Auto Quest Functions
-local function getQuest()
-    local questGivers = Workspace:FindFirstChild("NPCs")
-    if not questGivers then return end
-    
-    for _, npc in pairs(questGivers:GetChildren()) do
-        if npc.Name:match("Quest") and npc:FindFirstChild("HumanoidRootPart") then
-            local args = {npc.Name}
-            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-            if remotes and remotes:FindFirstChild("CommF_") then
-                remotes.CommF_:InvokeServer("StartQuest", unpack(args))
-            end
-            break
+-- FIX: CommF_ "StartQuest" butuh NAMA QUEST + tier, bukan nama NPC.
+-- Tabel First Sea; sesuaikan kalau ada update game.
+local questTable = {
+    { min = 1,   max = 9,   name = "BanditQuest1", tier = 1, spot = CFrame.new(1059, 17, 1550) },
+    { min = 10,  max = 14,  name = "BanditQuest1", tier = 2, spot = CFrame.new(1059, 17, 1550) },
+    { min = 15,  max = 29,  name = "JungleQuest",  tier = 1, spot = CFrame.new(-1598, 37, 153) },
+    { min = 30,  max = 39,  name = "JungleQuest",  tier = 2, spot = CFrame.new(-1598, 37, 153) },
+    { min = 40,  max = 59,  name = "BuggyQuest1",  tier = 1, spot = CFrame.new(-1140, 4, 3831) },
+    { min = 60,  max = 74,  name = "BuggyQuest1",  tier = 2, spot = CFrame.new(-1140, 4, 3831) },
+    { min = 75,  max = 89,  name = "DesertQuest",  tier = 1, spot = CFrame.new(896, 6, 4390) },
+    { min = 90,  max = 99,  name = "DesertQuest",  tier = 2, spot = CFrame.new(896, 6, 4390) },
+    { min = 100, max = 119, name = "SnowQuest",    tier = 1, spot = CFrame.new(1386, 87, -1298) },
+    { min = 120, max = 149, name = "SnowQuest",    tier = 2, spot = CFrame.new(1386, 87, -1298) },
+    { min = 150, max = 174, name = "MarineQuest2", tier = 1, spot = CFrame.new(-2450, 73, -3210) },
+    { min = 175, max = 189, name = "MarineQuest2", tier = 2, spot = CFrame.new(-2450, 73, -3210) },
+    { min = 190, max = 209, name = "SkyQuest",     tier = 1, spot = CFrame.new(-4721, 845, -1953) },
+    { min = 210, max = 249, name = "SkyQuest",     tier = 2, spot = CFrame.new(-4721, 845, -1953) },
+}
+
+local function getPlayerLevel()
+    local ok, lvl = pcall(function()
+        return localPlayer.Data.Level.Value
+    end)
+    if ok and type(lvl) == "number" then return lvl end
+    return 1
+end
+
+local function getQuestForLevel(level)
+    for _, q in ipairs(questTable) do
+        if level >= q.min and level <= q.max then
+            return q
         end
     end
+    return nil
+end
+
+local function hasActiveQuest()
+    local active = false
+    pcall(function()
+        local main = localPlayer:FindFirstChild("PlayerGui")
+        main = main and main:FindFirstChild("Main")
+        local questFrame = main and main:FindFirstChild("Quest")
+        active = questFrame ~= nil and questFrame.Visible == true
+    end)
+    return active
+end
+
+local lastQuestTry = 0
+
+local function getQuest()
+    if tick() - lastQuestTry < 3 then return end
+    if hasActiveQuest() then return end
+
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local commF = remotes and remotes:FindFirstChild("CommF_")
+    if not commF then return end
+
+    local q = getQuestForLevel(getPlayerLevel())
+    if not q or not humanoidRootPart then return end
+
+    -- server hanya menerima StartQuest kalau kita dekat quest giver
+    if (humanoidRootPart.Position - q.spot.Position).Magnitude > 25 then
+        humanoidRootPart.CFrame = q.spot
+        task.wait(0.4)
+    end
+
+    lastQuestTry = tick()
+    pcall(function()
+        commF:InvokeServer("StartQuest", q.name, q.tier)
+    end)
 end
 
 -- Island Teleport Data
@@ -355,8 +455,47 @@ local islands = {
 }
 
 -- Main Loops
-local attackTick = 0
-fastAttackSpeed = 0.1 -- Global variable untuk attack speed
+local fastAttackSpeed = 0.1 -- FIX: dulu global, sekarang local
+
+-- Cache BasePart supaya tidak GetDescendants() tiap frame (hemat FPS)
+local collisionPartsCache = {}
+local collisionCacheOwner = nil
+
+local function refreshCollisionCache()
+    collisionPartsCache = {}
+    collisionCacheOwner = character
+    if not character then return end
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            table.insert(collisionPartsCache, part)
+        end
+    end
+end
+
+local function setCharacterCollision(state)
+    if collisionCacheOwner ~= character or #collisionPartsCache == 0 then
+        refreshCollisionCache()
+    end
+    for _, part in ipairs(collisionPartsCache) do
+        if part.Parent then
+            part.CanCollide = state
+        end
+    end
+end
+
+-- Daftar yang TIDAK boleh dihitung sebagai "tanah" saat fly
+local function getFlyIgnoreList()
+    local list = {}
+    if character then table.insert(list, character) end
+    local enemies = Workspace:FindFirstChild("Enemies")
+    if enemies then table.insert(list, enemies) end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= localPlayer and plr.Character then
+            table.insert(list, plr.Character)
+        end
+    end
+    return list
+end
 
 RunService.RenderStepped:Connect(function()
     pcall(function()
@@ -375,51 +514,52 @@ RunService.RenderStepped:Connect(function()
         
         -- No Clip
         if config.noClip and character then
-            for _, part in pairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
+            setCharacterCollision(false)
         end
-        
+
         -- Walk Speed & Jump Power
         if humanoid then
             humanoid.WalkSpeed = config.walkSpeed
+            humanoid.UseJumpPower = true
             humanoid.JumpPower = config.jumpPower
         end
-        
-        -- Auto Farm + Bring Mob + Auto Fly
-        if config.autoFarm and humanoidRootPart then
-            -- Auto Fly: Player terbang di atas
-            local targetHeight = config.farmDistance + 5 -- Tinggi terbang
-            local currentPos = humanoidRootPart.Position
-            local targetPos = Vector3.new(currentPos.X, currentPos.Y, currentPos.Z)
-            
-            -- Cari ground height
-            local ray = Ray.new(currentPos, Vector3.new(0, -100, 0))
-            local hit, position = Workspace:FindPartOnRay(ray, character)
-            
-            if hit then
-                -- Terbang di atas ground
-                targetPos = Vector3.new(currentPos.X, position.Y + targetHeight, currentPos.Z)
-            else
-                -- Jika tidak ada ground, tetap di ketinggian minimal
-                targetPos = Vector3.new(currentPos.X, currentPos.Y, currentPos.Z)
-            end
-            
-            -- Smooth fly ke target height
-            humanoidRootPart.CFrame = CFrame.new(targetPos)
-            humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
-            
-            -- No clip saat farm (agar bisa terbang)
-            for _, part in pairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
+
+        -- Auto Farm
+        if config.autoFarm and humanoidRootPart and character then
+            if config.farmMode == "TP to Mob" then
+                -- Mode aman: kita yang mendekati mob.
+                -- Perpindahan player itu server-authoritative, jadi hit-nya kebaca.
+                local mob = getClosestMob()
+                local mobRoot = mob and mob:FindFirstChild("HumanoidRootPart")
+                if mobRoot then
+                    humanoidRootPart.CFrame = mobRoot.CFrame * CFrame.new(0, config.farmDistance, 0)
+                    humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 end
+            else
+                -- Mode legacy: terbang di atas tanah + tarik mob ke bawah
+                local currentPos = humanoidRootPart.Position
+                local targetHeight = config.farmDistance + 5
+
+                -- FIX: raycast ke bawah harus mengabaikan mob & player lain.
+                -- Kalau tidak, ray nabrak mob yang baru ditarik ke bawah dan
+                -- player naik terus tiap frame (terbang tak terkendali).
+                local params = RaycastParams.new()
+                params.FilterType = Enum.RaycastFilterType.Exclude
+                params.FilterDescendantsInstances = getFlyIgnoreList()
+                params.IgnoreWater = true
+
+                local result = Workspace:Raycast(currentPos, Vector3.new(0, -1000, 0), params)
+                if result then
+                    local targetY = result.Position.Y + targetHeight
+                    -- clamp: maksimal 8 stud per frame, biar tidak melesat
+                    local deltaY = math.clamp(targetY - currentPos.Y, -8, 8)
+                    humanoidRootPart.CFrame = CFrame.new(currentPos.X, currentPos.Y + deltaY, currentPos.Z)
+                    humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end
+
+                setCharacterCollision(false)
+                bringAllMobs()
             end
-            
-            -- Bring all mobs ke bawah player
-            bringAllMobs()
         end
     end)
 end)
@@ -427,7 +567,7 @@ end)
 -- Separate attack loop untuk avoid freeze
 task.spawn(function()
     while true do
-        wait(config.fastAttack and fastAttackSpeed or 0.2)
+        task.wait(config.fastAttack and fastAttackSpeed or 0.2)
         
         pcall(function()
             if config.autoFarm and humanoidRootPart then
@@ -498,7 +638,17 @@ FarmTab:CreateToggle({
     end,
 })
 
-FarmTab:CreateLabel("Anda terbang di atas, musuh di bawah")
+FarmTab:CreateDropdown({
+    Name = "Farm Mode",
+    Options = {"TP to Mob", "Fly + Bring"},
+    CurrentOption = {"TP to Mob"},
+    Flag = "FarmModeDropdown",
+    Callback = function(option)
+        config.farmMode = option[1] or option
+    end,
+})
+
+FarmTab:CreateLabel("TP to Mob = aman (server terima). Fly + Bring = legacy")
 
 FarmTab:CreateSlider({
     Name = "Bring Radius (Jarak Hisap)",
@@ -616,7 +766,7 @@ CombatTab:CreateButton({
         local backpack = localPlayer:FindFirstChild("Backpack")
         if backpack then
             for _, tool in pairs(backpack:GetChildren()) do
-                if tool:IsA("Tool") and tool.ToolTip:match("Fruit") then
+                if tool:IsA("Tool") and (tool.ToolTip or ""):match("Fruit") then
                     humanoid:EquipTool(tool)
                     break
                 end
@@ -667,6 +817,7 @@ PlayerTab:CreateToggle({
     Flag = "AntiAFKToggle",
     Callback = function(value)
         config.antiAFK = value
+        setAntiAFK(value)
     end,
 })
 
@@ -989,8 +1140,7 @@ MiscTab:CreateButton({
             Text = "Tekan ESC untuk buka menu Roblox",
             Duration = 3,
         })
-        -- Alternatif: buka settings menu
-        game:GetService("GuiService"):ToggleGuiIsVisibleForCaptures(false)
+        -- catatan: GuiService tidak punya API untuk membuka menu Roblox dari script
     end,
 })
 
@@ -1016,7 +1166,7 @@ MiscTab:CreateButton({
             Duration = 2,
         })
         wait(1)
-        game:Shutdown()
+        localPlayer:Kick("Keluar dari game via script")
     end,
 })
 
