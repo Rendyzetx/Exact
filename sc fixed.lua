@@ -10,6 +10,7 @@ local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputService = game:GetService("VirtualInputService")
 local TweenService = game:GetService("TweenService")
 
 local localPlayer = Players.LocalPlayer
@@ -31,6 +32,8 @@ local config = {
     autoClick = false,
     autoSkill = false,
     fastAttack = false,
+    skillRange = 150,
+    skillKeys = {"Z", "X", "C", "V"},
     
     -- Player
     walkSpeed = 16,
@@ -347,6 +350,66 @@ local function attackMob(mob)
                 controller:attack()
             end
         end)
+    end
+end
+
+-- Auto Skill Functions
+-- FIX: Blox Fruits tidak punya remote skill publik yang stabil; skill di-handle
+-- client lewat input listener. Jalur paling reliable = kirim key event asli via
+-- VirtualInputService (masuk ke UserInputService game), sambil arahkan kamera
+-- ke mob terdekat supaya skill berbasis raycast/aim kena target.
+local skillSupportWarned = false
+
+local function pressSkillKey(keyName)
+    local keyCode = Enum.KeyCode[keyName]
+    if not keyCode then return false end
+
+    local ok = pcall(function()
+        VirtualInputService:SendKeyEvent(keyCode, true, nil, game)
+        task.wait(0.05)
+        VirtualInputService:SendKeyEvent(keyCode, false, nil, game)
+    end)
+    return ok
+end
+
+local function aimCameraAt(position)
+    pcall(function()
+        local cam = Workspace.CurrentCamera
+        if cam then
+            cam.CFrame = CFrame.new(cam.CFrame.Position, position)
+        end
+    end)
+end
+
+local function castSkills()
+    if not config.autoSkill or not character or not humanoidRootPart then return end
+    if humanoid and humanoid.Health <= 0 then return end
+
+    local mob = getClosestMob()
+    local mobRoot = mob and mob:FindFirstChild("HumanoidRootPart")
+    if not mobRoot then return end
+
+    -- jangan buang skill kalau target di luar jangkauan
+    if (humanoidRootPart.Position - mobRoot.Position).Magnitude > config.skillRange then
+        return
+    end
+
+    aimCameraAt(mobRoot.Position)
+
+    for _, key in ipairs(config.skillKeys) do
+        if not config.autoSkill then break end -- hormati toggle off di tengah cast
+        local ok = pressSkillKey(key)
+        if not ok and not skillSupportWarned then
+            skillSupportWarned = true
+            config.autoSkill = false
+            Rayfield:Notify({
+                Title = "Auto Skill",
+                Content = "❌ Executor tidak support VirtualInputService. Auto Skill dimatikan.",
+                Duration = 5,
+            })
+            return
+        end
+        task.wait(0.3) -- jeda antar skill, sesuai cooldown umum Blox Fruits
     end
 end
 
@@ -732,16 +795,23 @@ CombatTab:CreateToggle({
         if value then
             task.spawn(function()
                 while config.autoSkill do
-                    wait(0.1)
-                    -- Simulate key presses for skills
-                    local skills = {"Z", "X", "C", "V"}
-                    for _, key in ipairs(skills) do
-                        local args = {key}
-                        -- This would need proper remote detection
-                    end
+                    task.wait(0.3)
+                    pcall(castSkills)
                 end
             end)
         end
+    end,
+})
+
+CombatTab:CreateSlider({
+    Name = "Skill Range (Jarak Cast)",
+    Range = {50, 500},
+    Increment = 10,
+    Suffix = "studs",
+    CurrentValue = 150,
+    Flag = "SkillRangeSlider",
+    Callback = function(value)
+        config.skillRange = value
     end,
 })
 
